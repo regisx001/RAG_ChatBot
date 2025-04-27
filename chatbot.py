@@ -25,7 +25,7 @@ vector_store = Chroma(
 )
 
 # Set up retriever and compression
-num_results = 5
+num_results = 2
 retriever = vector_store.as_retriever(search_kwargs={'k': num_results})
 llm_compression = ChatGroq(
     temperature=0, api_key=GROQ_API_KEY, model="llama-3.3-70b-versatile")
@@ -41,68 +41,40 @@ llm_response = ChatGroq(
     temperature=0, model="llama-3.3-70b-versatile", api_key=GROQ_API_KEY)
 
 rag_template = """\
-**Rôle** : 
-Expert en ingénierie pédagogique et technologies éducatives avec spécialisation en IA éducative.
+Rôle :
+Tu es un expert en formation et en formation assistée par l'IA.
 
-**Domaine d'Expertise** :
-- Méthodologies d'apprentissage numérique
-- Systèmes tutoriels intelligents
-- Adaptive Learning
-- Analyse des données éducatives (Learning Analytics)
-- Conception de modules de formation hybrides
+Mission :
+Aider l'utilisateur à comprendre et à utiliser efficacement une plateforme de formation basée sur l'IA, ainsi qu'à répondre à toute question générale sur la formation assistée par l'IA.
 
-**Mission** :
-Fournir des réponses techniques et pédagogiquement solides en t'appuyant strictement sur les documents de référence.
-
-**Contexte de la Question** :
+Historique :
 {history}
 
-**Base de Connaissances** :
+Connaissances :
 {context}
 
-**Question à Traiter** :
+Question :
 {question}
 
-**Consignes de Réponse** :
-1. **Pertinence** :
-   - Prioriser les informations validées par les documents de référence
-   - Limiter les réponses à 500 mots maximum
+Consignes :
 
-2. **Structure** :
-   → Introduction contextuelle (1-2 phrases)
-   → Développement structuré en points clés
-   → Conclusion opérationnelle avec perspectives
+    Répondre uniquement en utilisant les informations disponibles.
 
-3. **Précision** :
-   - Inclure les éléments techniques pertinents :
-     • Modèles pédagogiques
-     • Outils numériques
-     • Méthodes d'évaluation
-   - Citer les sources originales quand elles sont disponibles
+    En cas de question hors sujet, répondre :
+    _"Je n'ai pas cette information. Voici quelques questions sur lesquelles je peux vous aider :
 
-4. **Gestion des Incertitudes** :
-   - Si information incomplète : "D'après les ressources disponibles..."
-   - Si hors contexte : "Cette question sort du cadre de notre documentation sur les systèmes éducatifs intelligents. Souhaitez-vous reformuler ?"
+    Comment créer une formation assistée par l'IA ?
 
-5. **Style** :
-   - Registre professionnel mais accessible
-   - Éviter le jargon non expliqué
-   - Utiliser des analogies pédagogiques quand approprié
+    Comment l'IA améliore-t-elle les processus de formation ?
 
-**Exemple de Réponse Idéale** :
-[Contexte] Discussion sur l'apprentissage adaptatif
-[Question] Quels sont les avantages des systèmes LAMS ?
-[Réponse] "Les systèmes LAMS (Learning Activity Management System) offrent trois avantages principaux : 
-1. Séquençage dynamique des activités (référence : doc. 4.2)
-2. Intégration de l'évaluation formative en temps réel 
-3. Interopérabilité avec les LMS traditionnels 
-Comme illustré dans le cas d'usage de l'Université X (doc. 7.3), cela permet une réduction de 30% du temps d'apprentissage."
+    Quels sont les avantages de l'apprentissage assisté par l'IA ?
 
-**Format de Sortie** :
-▸ Utiliser des tirets (─) pour les sections
-▸ Mots-clés en **gras**
-▸ Références entre parenthèses quand disponibles
-▸ Éviter les listes numérotées longues (>5 items)
+    Quelles sont les meilleures pratiques pour intégrer l'IA dans la formation ?"_
+
+    Adopter un ton professionnel, clair et précis.
+
+Format attendu :
+Réponse structurée avec des informations factuelles et bien organisées.
 """
 
 
@@ -131,7 +103,7 @@ def generate_response(user_message):
 
 # Gradio interface
 with gr.Blocks() as demo:
-    gr.Markdown("## Django Chatbot")
+    gr.Markdown("## ChatBot : Formation assisté par  IA ")
     chatbot = gr.Chatbot()
     state = gr.State([])
 
