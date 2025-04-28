@@ -25,7 +25,7 @@ vector_store = Chroma(
 )
 
 # Set up retriever and compression
-num_results = 2
+num_results = 5
 retriever = vector_store.as_retriever(search_kwargs={'k': num_results})
 llm_compression = ChatGroq(
     temperature=0, api_key=GROQ_API_KEY, model="llama-3.3-70b-versatile")
