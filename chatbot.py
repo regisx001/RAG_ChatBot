@@ -25,8 +25,9 @@ vector_store = Chroma(
 )
 
 # Set up retriever and compression
-num_results = 5
+num_results = 10
 retriever = vector_store.as_retriever(search_kwargs={'k': num_results})
+
 llm_compression = ChatGroq(
     temperature=0, api_key=GROQ_API_KEY, model="llama-3.3-70b-versatile")
 compressor_llm = LLMChainExtractor.from_llm(llm_compression)
@@ -58,7 +59,7 @@ Question :
 
 Consignes :
 
-    Répondre uniquement en utilisant les informations disponibles.
+    Répondre uniquement en utilisant les informations disponibles et des donnés general selon la conversation.
 
     En cas de question hors sujet, répondre :
     _"Je n'ai pas cette information. Voici quelques questions sur lesquelles je peux vous aider :
@@ -74,7 +75,7 @@ Consignes :
     Adopter un ton professionnel, clair et précis.
 
 Format attendu :
-Réponse structurée avec des informations factuelles et bien organisées.
+Réponse structurée avec des informations factuelles et bien organisées et adaptable sur la language de conversation.
 """
 
 
@@ -83,6 +84,8 @@ rag_prompt = ChatPromptTemplate.from_template(rag_template)
 
 def retrieve_context(query):
     docs = advanced_retriever.get_relevant_documents(query)
+    for doc in docs:
+        print(doc.page_content)  # Print each document's content
     return "\n\n".join([f"- {doc.page_content}" for doc in docs])
 
 
