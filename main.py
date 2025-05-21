@@ -20,7 +20,7 @@ app = FastAPI(title="AI Training Chatbot API")
 # Configuration
 CHROMA_PATH = os.getenv("CHROMA_PATH", "chroma_db")
 GROQ_API_KEY = os.getenv(
-    "GROQ_API_KEY", "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")
+    "GROQ_API_KEY", "API_KEY_HERE")
 
 # Initialize vector store and retrievers
 embeddings = OllamaEmbeddings(model="nomic-embed-text")
@@ -50,7 +50,7 @@ llm_response = ChatGroq(
 )
 
 # Prompt template
-rag_template = """
+rag_template = """\
 Rôle :
 Tu es un expert en formation et en formation assistée par l'IA.
 
@@ -68,7 +68,7 @@ Question :
 
 Consignes :
 
-    Répondre uniquement en utilisant les informations disponibles.
+    Répondre uniquement en utilisant les informations disponibles et des donnés general selon la conversation.
 
     En cas de question hors sujet, répondre :
     _"Je n'ai pas cette information. Voici quelques questions sur lesquelles je peux vous aider :
@@ -84,8 +84,9 @@ Consignes :
     Adopter un ton professionnel, clair et précis.
 
 Format attendu :
-Réponse structurée avec des informations factuelles et bien organisées.
+Réponse structurée avec des informations factuelles et bien organisées et adaptable sur la language de conversation.
 """
+
 rag_prompt = ChatPromptTemplate.from_template(rag_template)
 
 # In-memory conversation store per session
