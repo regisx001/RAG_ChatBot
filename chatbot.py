@@ -1,3 +1,7 @@
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
 from langchain_groq import ChatGroq
@@ -6,41 +10,57 @@ from langchain.memory import ConversationBufferMemory
 from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import LLMChainExtractor
 from langchain.prompts import ChatPromptTemplate
-from dotenv import load_dotenv
-import gradio as gr
+import os
+from typing import List, Dict, Optional, Any
+from uuid import uuid4
 
 # Load environment variables
 load_dotenv()
 
-# Configuration
-CHROMA_PATH = r"chroma_db"
-GROQ_API_KEY = ""  # Add your Groq API key here
+# FastAPI app
+app = FastAPI(title="AI Training Chatbot API")
 
-# Initialize components
+# Add CORS middleware for Angular
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify your Angular app's origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Configuration
+CHROMA_PATH = os.getenv("CHROMA_PATH", "chroma_db")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "API_KEY_HERE")
+
+# Initialize vector store and retrievers
 embeddings = OllamaEmbeddings(model="nomic-embed-text")
 vector_store = Chroma(
     collection_name="chatbot",
     embedding_function=embeddings,
     persist_directory=CHROMA_PATH,
 )
-
-# Set up retriever and compression
-num_results = 10
-retriever = vector_store.as_retriever(search_kwargs={'k': num_results})
+base_retriever = vector_store.as_retriever(search_kwargs={"k": 3})
 
 llm_compression = ChatGroq(
-    temperature=0, api_key=GROQ_API_KEY, model="llama-3.3-70b-versatile")
+    temperature=0,
+    api_key=GROQ_API_KEY,
+    model="llama-3.3-70b-versatile"
+)
 compressor_llm = LLMChainExtractor.from_llm(llm_compression)
 advanced_retriever = ContextualCompressionRetriever(
     base_compressor=compressor_llm,
-    base_retriever=retriever
+    base_retriever=base_retriever
 )
 
-# Memory and prompt setup
-memory = ConversationBufferMemory(memory_key="history", return_messages=False)
+# LLM for responses
 llm_response = ChatGroq(
-    temperature=0, model="llama-3.3-70b-versatile", api_key=GROQ_API_KEY)
+    temperature=0,
+    api_key=GROQ_API_KEY,
+    model="llama-3.3-70b-versatile"
+)
 
+# Update prompt template for better formatting
 rag_template = """\
 Rôle :
 Tu es un expert en formation et en formation assistée par l'IA.
@@ -58,74 +78,149 @@ Question :
 {question}
 
 Consignes :
-
-    Répondre uniquement en utilisant les informations disponibles et des donnés general selon la conversation.
-
-    En cas de question hors sujet, répondre :
-    _"Je n'ai pas cette information. Voici quelques questions sur lesquelles je peux vous aider :
-
-    Comment créer une formation assistée par l'IA ?
-
-    Comment l'IA améliore-t-elle les processus de formation ?
-
-    Quels sont les avantages de l'apprentissage assisté par l'IA ?
-
-    Quelles sont les meilleures pratiques pour intégrer l'IA dans la formation ?"_
-
-    Adopter un ton professionnel, clair et précis.
+1. Réponds uniquement en utilisant les informations disponibles et des données générales selon la conversation.
+2. Utilise du markdown pour structurer ta réponse (listes à puces avec -, **gras** pour les points importants)
+3. Si tu mentionnes du code, utilise le format ```code``` pour le mettre en valeur
+4. En cas de question hors sujet, réponds : "Je n'ai pas cette information. Voici quelques questions sur lesquelles je peux vous aider..." et suggère des alternatives
+5. Adopte un ton professionnel, clair et précis.
+6. Organise ta réponse en sections si nécessaire pour plus de clarté.
 
 Format attendu :
-Réponse structurée avec des informations factuelles et bien organisées et adaptable sur la language de conversation.
+Réponse structurée avec des informations factuelles et bien organisées.
 """
-
 
 rag_prompt = ChatPromptTemplate.from_template(rag_template)
 
+# In-memory conversation store per session
+_memories: dict[str, ConversationBufferMemory] = {}
 
-def retrieve_context(query):
+# Pydantic models
+class Source(BaseModel):
+    id: str
+    title: str
+    preview: str
+    type: str = "Document"
+    location: str
+
+class ChatRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+
+class ChatResponse(BaseModel):
+    response: str  # Keep this as 'response' for Angular
+    session_id: str
+    sources: Optional[List[Source]] = None
+
+class ResetRequest(BaseModel):
+    session_id: Optional[str] = None
+
+# Helpers
+def get_memory(session_id: str) -> ConversationBufferMemory:
+    if session_id not in _memories:
+        _memories[session_id] = ConversationBufferMemory(
+            memory_key="history", return_messages=False)
+    return _memories[session_id]
+
+def retrieve_context_and_sources(query: str):
     docs = advanced_retriever.get_relevant_documents(query)
-    for doc in docs:
-        print(doc.page_content)  # Print each document's content
-    return "\n\n".join([f"- {doc.page_content}" for doc in docs])
-
-
-def generate_response(user_message):
-    conversation_history = memory.buffer
-    context = retrieve_context(user_message)
-
-    prompt = rag_prompt.format(
-        history=conversation_history,
-        context=context,
-        question=user_message
-    )
-
-    response = llm_response([HumanMessage(content=prompt)]).content
-    memory.save_context({"input": user_message}, {"output": response})
-    return response
-
-
-# Gradio interface
-with gr.Blocks() as demo:
-    gr.Markdown("## ChatBot : Formation assisté par  IA ")
-    chatbot = gr.Chatbot()
-    state = gr.State([])
-
-    with gr.Row():
-        txt_input = gr.Textbox(
-            show_label=False,
-            placeholder="Ask your question...",
-            container=False
+    context = "\n\n".join([f"- {doc.page_content}" for doc in docs])
+    
+    # Extract sources
+    sources = []
+    for i, doc in enumerate(docs):
+        metadata = doc.metadata
+        file_name = metadata.get("source", "").split("/")[-1] if "source" in metadata else f"Document {i+1}"
+        doc_type = "Document"
+        
+        # Try to identify document type from metadata or file extension
+        if "type" in metadata:
+            doc_type = metadata["type"]
+        elif "source" in metadata:
+            file_ext = os.path.splitext(metadata["source"])[1].lower()
+            if file_ext == ".pdf":
+                doc_type = "PDF Document"
+            elif file_ext == ".docx":
+                doc_type = "Word Document" 
+            elif file_ext == ".txt":
+                doc_type = "Text File"
+            elif file_ext in [".csv", ".xlsx"]:
+                doc_type = "Data File"
+        
+        source = Source(
+            id=str(uuid4()),
+            title=file_name,
+            preview=doc.page_content[:150] + "..." if len(doc.page_content) > 150 else doc.page_content,
+            type=doc_type,
+            location=f"Page {metadata.get('page', 'Unknown')}" if "page" in metadata else "Section"
         )
-        send_btn = gr.Button("Send")
+        sources.append(source)
+    
+    return context, sources
 
-    def user_interaction(user_message, history):
-        response = generate_response(user_message)
-        history.append((user_message, response))
-        return "", history
+# API Endpoints
+@app.post("/chat", response_model=ChatResponse)
+def chat(req: ChatRequest):
+    # Use provided session ID or generate default
+    sid = req.session_id or str(uuid4())
+    memory = get_memory(sid)
+    history = memory.buffer
 
-    txt_input.submit(user_interaction, [txt_input, state], [
-                     txt_input, chatbot])
-    send_btn.click(user_interaction, [txt_input, state], [txt_input, chatbot])
+    try:
+        # Get context and sources
+        context, sources = retrieve_context_and_sources(req.message)
+        
+        # Format prompt
+        prompt_text = rag_prompt.format(
+            history=history,
+            context=context,
+            question=req.message
+        )
+        
+        # Generate response
+        res = llm_response([HumanMessage(content=prompt_text)])
+        answer = res.content
+        
+        # Save conversation context
+        memory.save_context({"input": req.message}, {"output": answer})
+        
+        # Return response with session ID and sources
+        return ChatResponse(
+            response=answer,
+            session_id=sid,
+            sources=sources if sources else None
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/reset")
+def reset(req: ResetRequest):
+    sid = req.session_id or "default"
+    _memories.pop(sid, None)
+    return {"status": "memory reset", "session_id": sid}
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint"""
+    try:
+        collection = vector_store._collection
+        doc_count = collection.count()
+        return {
+            "status": "healthy",
+            "document_count": doc_count,
+            "model": "llama-3.3-70b-versatile"
+        }
+    except Exception as e:
+        return {"status": "unhealthy", "error": str(e)}
+
+@app.get("/")
+def root():
+    return {
+        "message": "AI Training Chatbot API is running.",
+        "status": "online",
+        "endpoints": ["/chat", "/reset", "/health"]
+    }
 
 if __name__ == "__main__":
-    demo.launch()
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
